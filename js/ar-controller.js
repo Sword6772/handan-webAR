@@ -4,6 +4,8 @@ let arActive = false;
 let currentARMode = 'game'; // 'game' | 'scan'
 let mindarInstance = null; // MindAR实例引用
 let scanLoading = false; // 防止竞态
+let scanFacingMode = 'environment'; // 'environment' (后置) | 'user' (前置)
+let scanVideoStream = null; // 当前扫描模式的摄像头流，用于切换摄像头
 
 // 变量（模式二：拼成语用）
 let gameRenderer = null;
@@ -14,6 +16,12 @@ let confettiParticles = [];
 
 // 游戏引擎
 const gameEngine = new IdiomGameEngine();
+
+// ===== 摄像头切换按钮 =====
+document.getElementById('btn-toggle-camera').addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleScanCamera();
+});
 
 // ===== AR模式切换 =====
 document.getElementById('ar-mode-tabs').addEventListener('click', async (e) => {
@@ -73,21 +81,26 @@ async function startScanMode() {
 
   scanLoading = true;
   try {
-    statusEl.textContent = '正在启动相机...';
+    const facingLabel = scanFacingMode === 'user' ? '前置' : '后置';
+    statusEl.textContent = '正在启动' + facingLabel + '相机...';
 
-    await initMindAR(container);
+    await initMindAR(container, scanFacingMode);
 
     if (!scanLoading) return; // 加载中被中断
     statusEl.textContent = '';
     guide.style.display = 'block';
+    // 更新摄像头切换按钮状态
+    updateCameraToggleBtn();
 
   } catch (err) {
     if (!scanLoading) return; // 加载中被中断，不显示错误
     console.error('Scan mode error:', err);
-    if (err.name === 'NotAllowedError') {
+    const errName = (err && err.name) || '';
+    const errMsg = (err && err.message) || '';
+    if (errName === 'NotAllowedError' || errName === 'AbortError') {
       statusEl.textContent = '请授权相机权限后刷新页面';
-    } else if (err.message === 'TARGET_NOT_FOUND') {
-      statusEl.textContent = '缺少识别图文件，请先编译 markers/targets.mind';
+    } else if (errMsg.includes('超时')) {
+      statusEl.textContent = errMsg;
     } else {
       statusEl.textContent = '无法访问相机，请检查权限设置';
     }
@@ -96,12 +109,73 @@ async function startScanMode() {
   scanLoading = false;
 }
 
-function initMindAR(container) {
+function initMindAR(container, facingMode) {
   return new Promise((resolve, reject) => {
     if (typeof MINDAR === 'undefined') {
       reject(new Error('MindAR not loaded'));
       return;
     }
+
+    // 超时保护
+    const timeoutId = setTimeout(() => {
+      reject(new Error('AR引擎初始化超时，请检查网络或刷新重试'));
+    }, 25000);
+
+    const cleanup = () => clearTimeout(timeoutId);
+
+    // ===== 策略：不覆盖_startVideo，保持MindAR原生渲染管线 =====
+    // 改为拦截document.createElement('video')给loadedmetadata加超时兜底
+    // 同时拦截getUserMedia做摄像头方向切换
+
+    const facing = facingMode || 'environment';
+
+    // 拦截getUserMedia：支持摄像头方向切换
+    const origGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = function(constraints) {
+      if (constraints.video && constraints.video.facingMode === 'environment') {
+        constraints = {
+          ...constraints,
+          video: { ...constraints.video, facingMode: facing }
+        };
+      }
+      return origGetUserMedia(constraints).then(stream => {
+        scanVideoStream = stream;
+        return stream;
+      });
+    };
+
+    // 拦截createElement('video')：给loadedmetadata事件加超时兜底
+    const origCreateElement = document.createElement.bind(document);
+    document.createElement = function(tag, options) {
+      const el = origCreateElement(tag, options);
+      if (tag.toLowerCase() === 'video') {
+        const origAddEventListener = el.addEventListener.bind(el);
+        let metaFired = false;
+        el.addEventListener = function(type, listener, options) {
+          if (type === 'loadedmetadata') {
+            const wrapped = function(ev) {
+              if (metaFired) return;
+              metaFired = true;
+              listener.call(this, ev);
+            };
+            origAddEventListener.call(this, type, wrapped, options);
+            // 超时兜底：8秒后loadedmetadata还没触发就手动触发
+            setTimeout(() => {
+              if (!metaFired && el.videoWidth > 0) {
+                console.warn('loadedmetadata超时未触发，手动触发');
+                wrapped(new Event('loadedmetadata'));
+              } else if (!metaFired) {
+                console.warn('loadedmetadata超时且无视频尺寸，强制触发');
+                wrapped(new Event('loadedmetadata'));
+              }
+            }, 8000);
+          } else {
+            origAddEventListener.call(this, type, listener, options);
+          }
+        };
+      }
+      return el;
+    };
 
     // MindAR v1 API: 内置Three.js渲染器
     const mindarThree = new MINDAR.IMAGE.MindARThree({
@@ -109,38 +183,99 @@ function initMindAR(container) {
       imageTargetSrc: 'assets/markers/targets.mind'
     });
 
+    // 必须使用 MindAR 内置的 Three.js，不能混用独立版 THREE
+    const MindARTHREE = MINDAR.IMAGE.THREE;
     const { renderer: arRenderer, scene: arScene, camera: arCamera } = mindarThree;
 
-    // 为每个成语创建锚点内容
+    // 限制像素比（与游戏模式一致），避免移动端 canvas 过大
+    arRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const cw = container.clientWidth, ch = container.clientHeight;
+    arRenderer.setSize(cw, ch);
+    arRenderer.domElement.style.position = 'absolute';
+    arRenderer.domElement.style.top = '0';
+    arRenderer.domElement.style.left = '0';
+    arRenderer.domElement.style.width = '100%';
+    arRenderer.domElement.style.height = '100%';
+    if (mindarThree.cssRenderer) {
+      mindarThree.cssRenderer.setSize(cw, ch);
+      mindarThree.cssRenderer.domElement.style.position = 'absolute';
+      mindarThree.cssRenderer.domElement.style.top = '0';
+      mindarThree.cssRenderer.domElement.style.left = '0';
+      mindarThree.cssRenderer.domElement.style.width = '100%';
+      mindarThree.cssRenderer.domElement.style.height = '100%';
+    }
+
+    // 为每个成语创建锚点内容（使用 MindAR 内置 Three.js）
     const anchorData = [];
     IDIOMS.forEach((idiom, index) => {
       const anchor = mindarThree.addAnchor(index);
-      const contentGroup = new THREE.Group();
+      const contentGroup = new MindARTHREE.Group();
       contentGroup.visible = false;
 
-      // 成语内容卡片
       const canvas = document.createElement('canvas');
       canvas.width = 512;
       canvas.height = 700;
       drawIdiomCard(canvas, idiom);
-      const texture = new THREE.CanvasTexture(canvas);
+      const texture = new MindARTHREE.CanvasTexture(canvas);
 
-      const planeGeo = new THREE.PlaneGeometry(0.55, 0.75);
-      const planeMat = new THREE.MeshBasicMaterial({
+      const planeGeo = new MindARTHREE.PlaneGeometry(0.55, 0.75);
+      const planeMat = new MindARTHREE.MeshBasicMaterial({
         map: texture,
         transparent: true,
-        side: THREE.DoubleSide
+        side: MindARTHREE.DoubleSide
       });
-      const plane = new THREE.Mesh(planeGeo, planeMat);
+      const plane = new MindARTHREE.Mesh(planeGeo, planeMat);
       contentGroup.add(plane);
 
       anchor.group.add(contentGroup);
       anchorData.push({ anchor, group: contentGroup, idiom });
     });
 
-    // 启动追踪
+    // 启动追踪（使用MindAR原生渲染管线）
+    const restorePatches = () => {
+      document.createElement = origCreateElement;
+      navigator.mediaDevices.getUserMedia = origGetUserMedia;
+    };
+
     mindarThree.start().then(() => {
-      // 不覆盖MindAR自带的渲染循环，用独立rAF只做UI更新
+      cleanup();
+      restorePatches();
+
+      // 修正 MindAR 内部 video：作为相机背景可见（双保险 + 内联样式）
+      const mindarVideo = container.querySelector('video');
+      if (mindarVideo) {
+        mindarVideo.style.position = 'absolute';
+        mindarVideo.style.top = '0';
+        mindarVideo.style.left = '0';
+        mindarVideo.style.width = '100%';
+        mindarVideo.style.height = '100%';
+        mindarVideo.style.objectFit = 'cover';
+        mindarVideo.style.zIndex = '0';
+        mindarVideo.style.opacity = '1';
+        mindarVideo.style.pointerEvents = 'none';
+      }
+
+      // 修正 MindAR canvas：叠加在 video 上方
+      const mindarCanvas = container.querySelector('canvas');
+      if (mindarCanvas) {
+        mindarCanvas.style.position = 'absolute';
+        mindarCanvas.style.top = '0';
+        mindarCanvas.style.left = '0';
+        mindarCanvas.style.width = '100%';
+        mindarCanvas.style.height = '100%';
+        mindarCanvas.style.zIndex = '1';
+      }
+
+      // 隐藏 MindAR CSS renderer（loading/scanning UI），不遮挡画面
+      if (mindarThree.cssRenderer && mindarThree.cssRenderer.domElement) {
+        mindarThree.cssRenderer.domElement.style.display = 'none';
+      }
+
+      // 隐藏 MindAR UI overlay
+      container.querySelectorAll('[class*="mindar-ui"]').forEach(el => {
+        el.style.display = 'none';
+      });
+
       const uiLoop = () => {
         if (!arActive || currentARMode !== 'scan') return;
 
@@ -157,7 +292,11 @@ function initMindAR(container) {
 
       mindarInstance = { mindarThree, anchorData, arRenderer };
       resolve();
-    }).catch(reject);
+    }).catch((err) => {
+      cleanup();
+      restorePatches();
+      reject(err);
+    });
   });
 }
 
@@ -246,7 +385,12 @@ function stopScanMode() {
     mindarInstance.mindarThree.stop();
     mindarInstance = null;
   }
-  // 释放扫描视频的摄像头
+  // 释放我们自己管理的摄像头流
+  if (scanVideoStream) {
+    scanVideoStream.getTracks().forEach(track => track.stop());
+    scanVideoStream = null;
+  }
+  // 释放扫描视频的摄像头（旧HTML占位video）
   const video = document.getElementById('ar-video-scan');
   if (video && video.srcObject) {
     video.srcObject.getTracks().forEach(track => track.stop());
@@ -261,6 +405,36 @@ function stopScanMode() {
   }
   document.getElementById('ar-status-scan').textContent = '';
   document.getElementById('scan-guide').style.display = 'none';
+  // 更新摄像头切换按钮状态
+  updateCameraToggleBtn();
+}
+
+// ===== 摄像头切换 =====
+async function toggleScanCamera() {
+  if (!arActive || currentARMode !== 'scan') return;
+  scanFacingMode = scanFacingMode === 'environment' ? 'user' : 'environment';
+
+  // 停止当前扫描模式
+  stopScanMode();
+
+  // 重新启动
+  currentARMode = 'scan';
+  document.getElementById('ar-mode-scan').classList.add('active');
+  document.getElementById('ar-mode-game').classList.remove('active');
+
+  try {
+    await startScanMode();
+  } catch (err) {
+    console.error('Camera toggle error:', err);
+  }
+}
+
+function updateCameraToggleBtn() {
+  const btn = document.getElementById('btn-toggle-camera');
+  if (!btn) return;
+  const isScanActive = (currentARMode === 'scan' && arActive && mindarInstance);
+  btn.style.display = isScanActive ? 'block' : 'none';
+  btn.textContent = scanFacingMode === 'user' ? '📷 切换到后置' : '🤳 切换到前置';
 }
 
 // =====================================================================
