@@ -1,0 +1,22 @@
+{
+  "name": "邯郸成语AR互动平台",
+  "short_name": "成语AR",
+  "description": "将邯郸成语典故转化为可交互的AR沉浸式体验",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1410",
+  "theme_color": "#1a1410",
+  "icons": [
+    {
+      "src": "assets/images/icon-app-192.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "assets/images/icon-app-512.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

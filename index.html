@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1a1410">
+  <title>邯郸成语AR</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Three.js (本地) -->
+  <script src="js/vendor/three.min.js"></script>
+  <!-- MindAR v1 (本地) -->
+  <script src="js/vendor/mindar-image-three.prod.js"></script>
+</head>
+<body>
+  <!-- 主内容容器 -->
+  <div id="app">
+    <!-- 首页 -->
+    <div id="page-home" class="page active">
+      <div class="home-bg"></div>
+      <div class="home-overlay"></div>
+      <div class="home-content">
+        <div class="home-logo">邯郸成语</div>
+        <p class="home-slogan">探寻成语之都 · 邯郸</p>
+        <p class="home-subtitle">中国成语典故之乡</p>
+        <div class="home-stats" id="home-stats">
+          <div class="home-stat"><span class="hs-num" id="hs-total">0</span><span class="hs-label">累计探索</span></div>
+          <div class="home-stat"><span class="hs-num" id="hs-score">0</span><span class="hs-label">总积分</span></div>
+          <div class="home-stat"><span class="hs-num" id="hs-badges">0</span><span class="hs-label">徽章</span></div>
+        </div>
+        <button class="btn-ar-entry" id="btn-ar-entry">
+          <span class="btn-ar-ring"></span>
+          <span class="btn-ar-inner">
+            <span class="ar-icon">
+              <span class="ar-icon-corner tl"></span>
+              <span class="ar-icon-corner tr"></span>
+              <span class="ar-icon-corner bl"></span>
+              <span class="ar-icon-corner br"></span>
+            </span>
+            <span class="ar-text">
+              <span class="ar-text-main">AR互动体验</span>
+              <span class="ar-text-sub">扫一扫，穿越两千年</span>
+            </span>
+          </span>
+        </button>
+        <div class="home-daily" id="home-daily"></div>
+      </div>
+    </div>
+
+    <!-- 文化介绍 -->
+    <div id="page-culture" class="page">
+      <div class="page-header">文化介绍</div>
+      <div class="culture-scroll" id="culture-scroll">
+        <!-- 动态填充 -->
+      </div>
+    </div>
+
+    <!-- AR互动 -->
+    <div id="page-ar" class="page">
+      <div class="ar-mode-tabs" id="ar-mode-tabs">
+        <button class="ar-mode-tab" data-mode="scan">扫典故</button>
+        <button class="ar-mode-tab active" data-mode="game">拼成语</button>
+      </div>
+      <div class="ar-container" id="ar-container">
+        <!-- 模式一：扫典故 -->
+        <div id="ar-mode-scan" class="ar-mode">
+          <video id="ar-video-scan" autoplay playsinline muted></video>
+          <div class="ar-scan-guide" id="scan-guide" style="display:none;">
+            <p class="scan-hint">请将镜头对准成语图案</p>
+          </div>
+          <div class="ar-status" id="ar-status-scan"></div>
+        </div>
+        <!-- 模式二：拼成语 -->
+        <div id="ar-mode-game" class="ar-mode active">
+          <video id="ar-video-game" autoplay playsinline muted></video>
+          <div class="ar-status" id="ar-status-game"></div>
+          <div class="game-hud" id="game-hud">
+            <div class="game-slots" id="game-slots"></div>
+            <div class="game-info" id="game-info"></div>
+            <button class="btn-game-action" id="btn-game-start">开始拼字</button>
+            <button class="btn-game-action hidden" id="btn-game-next">换一题</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 我的 -->
+    <div id="page-profile" class="page">
+      <div class="page-header">我的</div>
+      <div class="profile-content">
+        <div class="profile-avatar-wrap" id="profile-avatar-wrap">
+          <div class="profile-avatar" id="profile-avatar"></div>
+          <span class="avatar-edit-hint">点击更换头像</span>
+        </div>
+        <input type="file" id="avatar-input" accept="image/*" class="hidden">
+
+        <!-- 段位展示 -->
+        <div class="rank-display" id="rank-display">
+          <span class="rank-icon" id="rank-icon">🌱</span>
+          <div class="rank-info">
+            <span class="rank-name" id="rank-name">成语小白</span>
+            <div class="rank-progress-bar"><div class="rank-progress-fill" id="rank-progress"></div></div>
+            <span class="rank-score" id="rank-score">0 积分</span>
+          </div>
+        </div>
+
+        <!-- 邯郸币 -->
+        <div class="coins-display" id="coins-display">
+          <span class="coins-icon">🪙</span>
+          <span class="coins-amount" id="coins-amount">0</span>
+          <span class="coins-label">邯郸币</span>
+        </div>
+
+        <div class="profile-name-wrap">
+          <input class="profile-name" id="profile-name" value="成语爱好者" maxlength="12">
+          <span class="name-edit-icon">&#9998;</span>
+        </div>
+        <div class="profile-stats">
+          <div class="stat-item">
+            <span class="stat-num" id="stat-unlocked">0</span>
+            <span class="stat-label">已解锁</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num" id="stat-total">12</span>
+            <span class="stat-label">成语总数</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num" id="stat-badges">0</span>
+            <span class="stat-label">徽章</span>
+          </div>
+        </div>
+
+        <!-- 徽章展示 -->
+        <div class="section-title-sm">🏅 我的徽章</div>
+        <div class="badges-grid" id="badges-grid"></div>
+
+        <!-- 错题本入口 -->
+        <div class="section-title-sm">📝 错题本</div>
+        <div class="error-book" id="error-book">
+          <span class="empty-hint" id="error-empty">暂无错题，继续保持！</span>
+        </div>
+
+        <!-- 积分兑换 -->
+        <div class="section-title-sm">🛒 积分兑换</div>
+        <div class="shop-list" id="shop-list"></div>
+
+        <!-- 操作按钮 -->
+        <div class="profile-actions">
+          <button class="btn-profile-action" id="btn-ticket">
+            <span class="action-icon">&#127915;</span>
+            <span>门票购买</span>
+            <span class="action-arrow">&#8250;</span>
+          </button>
+          <button class="btn-profile-action" id="btn-invite">
+            <span class="action-icon">📤</span>
+            <span>邀请好友</span>
+            <span class="action-arrow">&#8250;</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部Tab导航 -->
+    <nav class="bottom-tabs" id="bottom-tabs">
+      <button class="tab-item active" data-tab="0">
+        <img class="tab-icon-img" src="assets/images/icon-tab-home-active.jpg" alt="" data-default="assets/images/icon-tab-home.jpg" data-active="assets/images/icon-tab-home-active.jpg">
+        <span class="tab-label">首页</span>
+      </button>
+      <button class="tab-item" data-tab="1">
+        <img class="tab-icon-img" src="assets/images/icon-tab-culture.png" alt="" data-default="assets/images/icon-tab-culture.png" data-active="assets/images/icon-tab-culture-active.png">
+        <span class="tab-label">文化介绍</span>
+      </button>
+      <button class="tab-item" data-tab="2">
+        <img class="tab-icon-img" src="assets/images/icon-tab-ar.png" alt="" data-default="assets/images/icon-tab-ar.png" data-active="assets/images/icon-tab-ar-active.png">
+        <span class="tab-label">AR互动</span>
+      </button>
+      <button class="tab-item" data-tab="3">
+        <img class="tab-icon-img" src="assets/images/icon-tab-profile.png" alt="" data-default="assets/images/icon-tab-profile.png" data-active="assets/images/icon-tab-profile-active.png">
+        <span class="tab-label">我的</span>
+      </button>
+    </nav>
+
+    <!-- 详情弹窗 -->
+    <div class="detail-modal" id="detail-modal">
+      <div class="detail-overlay" id="detail-overlay"></div>
+      <div class="detail-panel" id="detail-panel">
+        <button class="detail-close" id="detail-close">&times;</button>
+        <div class="detail-scroll" id="detail-content"></div>
+      </div>
+    </div>
+
+    <!-- AI对话弹窗 -->
+    <div class="ai-modal" id="ai-modal">
+      <div class="ai-overlay" id="ai-overlay"></div>
+      <div class="ai-panel">
+        <div class="ai-header">
+          <span>🤖 AI成语先生</span>
+          <button class="ai-close" id="ai-close">&times;</button>
+        </div>
+        <div class="ai-messages" id="ai-messages">
+          <div class="ai-msg bot">你好！我是AI成语先生，你可以问我任何关于邯郸成语的问题。比如："完璧归赵的故事是什么？" 或者 "帮我用简单的话解释邯郸学步"</div>
+        </div>
+        <div class="ai-presets" id="ai-presets">
+          <button class="ai-preset" data-q="帮我介绍一下这个成语的故事">📖 讲个故事</button>
+          <button class="ai-preset" data-q="用小朋友能听懂的话解释这个成语">👶 儿童版</button>
+          <button class="ai-preset" data-q="这个成语教会我们什么道理">💡 成语道理</button>
+        </div>
+        <div class="ai-input-row">
+          <input class="ai-input" id="ai-input" placeholder="输入你的问题...">
+          <button class="ai-send" id="ai-send">发送</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/home.js"></script>
+  <script src="js/culture.js"></script>
+  <script src="js/game-engine.js"></script>
+  <script src="js/ar-controller.js"></script>
+  <script src="js/ar.js"></script>
+  <script src="js/profile.js"></script>
+  <script src="js/ai-chat.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js');
+    }
+  </script>
+</body>
+</html>

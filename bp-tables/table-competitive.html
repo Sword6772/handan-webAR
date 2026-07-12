@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 820px;
+    padding: 40px;
+    background: #fff;
+    font-family: "PingFang SC","Microsoft YaHei",sans-serif;
+    color: #2c2c2c;
+  }
+  h2 { text-align: center; font-size: 22px; color: #1a1410; margin-bottom: 6px; }
+  .sub { text-align: center; font-size: 13px; color: #888; margin-bottom: 24px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { background: #1a1410; color: #C9A96E; padding: 10px 8px; text-align: center; font-weight: 600; }
+  th:first-child { text-align: left; padding-left: 12px; }
+  td { padding: 9px 8px; border-bottom: 1px solid #e8e8e8; text-align: center; }
+  td:first-child { text-align: left; font-weight: 600; padding-left: 12px; }
+  tr:nth-child(even) td { background: #fafaf7; }
+  .yes { color: #4a8c5c; font-weight: bold; }
+  .no { color: #c23a2b; }
+  .partial { color: #d4a017; }
+  .highlight td { background: #faf7f0 !important; border-left: 3px solid #C9A96E; }
+</style>
+</head>
+<body>
+<h2>竞品对比分析</h2>
+<p class="sub">Competitive Analysis — WebAR成语文化赛道</p>
+<table>
+  <thead>
+    <tr>
+      <th style="width:22%">对比维度</th>
+      <th style="width:20%">成语元宇宙<br>(本项目)</th>
+      <th style="width:18%">汉字AR卡片<br>(AR Flashcards)</th>
+      <th style="width:20%">成语大辞典APP</th>
+      <th style="width:20%">博物馆AR导览</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="highlight">
+      <td>安装方式</td>
+      <td class="yes">Web即用 / PWA</td>
+      <td class="no">需下载APP</td>
+      <td class="no">需下载APP</td>
+      <td class="no">需下载APP / 小程序</td>
+    </tr>
+    <tr>
+      <td>AR技术方案</td>
+      <td class="yes">WebAR (MindAR)</td>
+      <td class="yes">ARKit/ARCore</td>
+      <td class="no">无AR功能</td>
+      <td class="yes">ARKit/ARCore</td>
+    </tr>
+    <tr class="highlight">
+      <td>成语内容深度</td>
+      <td class="yes">★★★★★<br>12成语+故事+AI解说</td>
+      <td class="partial">★★☆☆☆<br>仅字形识别</td>
+      <td class="yes">★★★★☆<br>词库全但无互动</td>
+      <td class="no">不涉及成语</td>
+    </tr>
+    <tr>
+      <td>游戏化系统</td>
+      <td class="yes">✔ 段位+积分+徽章</td>
+      <td class="partial">基础得分</td>
+      <td class="no">无</td>
+      <td class="no">无</td>
+    </tr>
+    <tr class="highlight">
+      <td>AI智能交互</td>
+      <td class="yes">✔ 大模型解说</td>
+      <td class="no">无</td>
+      <td class="no">无</td>
+      <td class="no">无</td>
+    </tr>
+    <tr>
+      <td>LBS文旅融合</td>
+      <td class="yes">✔ 景点打卡+导流</td>
+      <td class="no">无</td>
+      <td class="no">无</td>
+      <td class="yes">✔ 位置导航</td>
+    </tr>
+    <tr class="highlight">
+      <td>社交传播</td>
+      <td class="yes">✔ AR合影+分享卡片</td>
+      <td class="partial">基础分享</td>
+      <td class="no">无</td>
+      <td class="no">无</td>
+    </tr>
+    <tr>
+      <td>商业模式</td>
+      <td class="yes">B端景区+B端文创+G端教育</td>
+      <td class="partial">C端付费</td>
+      <td class="partial">广告+内购</td>
+      <td class="partial">B端定制</td>
+    </tr>
+    <tr class="highlight">
+      <td>离线可用</td>
+      <td class="yes">✔ PWA缓存</td>
+      <td class="no">需网络</td>
+      <td class="partial">部分离线</td>
+      <td class="no">需网络</td>
+    </tr>
+    <tr>
+      <td>开发成本</td>
+      <td class="yes">低 (Web技术栈)</td>
+      <td class="no">高 (双端原生)</td>
+      <td class="partial">中</td>
+      <td class="no">高 (双端原生)</td>
+    </tr>
+  </tbody>
+</table>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 800px;
+    padding: 40px;
+    background: #fff;
+    font-family: "PingFang SC","Microsoft YaHei",sans-serif;
+    color: #2c2c2c;
+  }
+  h2 { text-align: center; font-size: 22px; color: #1a1410; margin-bottom: 6px; }
+  .sub { text-align: center; font-size: 13px; color: #888; margin-bottom: 24px; }
+  .canvas { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; border: 2px solid #1a1410; }
+  .box { padding: 14px 12px; border: 1px solid #ddd; min-height: 100px; }
+  .box-title { font-weight: 700; font-size: 13px; color: #1a1410; margin-bottom: 8px; border-bottom: 2px solid #C9A96E; padding-bottom: 6px; }
+  .box-text { font-size: 12px; color: #555; line-height: 1.7; }
+  .box-highlight { background: #faf7f0; }
+  .full-row { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<h2>商业模式画布</h2>
+<p class="sub">Business Model Canvas — 成语元宇宙</p>
+<div class="canvas">
+  <!-- Row 1 -->
+  <div class="box">
+    <div class="box-title">重要伙伴 Key Partners</div>
+    <div class="box-text">
+      • 邯郸文旅局 / 景区管理方<br>
+      • 大模型API服务商 (DeepSeek等)<br>
+      • 文创产品供应商<br>
+      • 研学教育机构 / 学校<br>
+      • 技术社区 (Three.js / MindAR)
+    </div>
+  </div>
+  <div class="box box-highlight">
+    <div class="box-title">关键业务 Key Activities</div>
+    <div class="box-text">
+      • AR内容生产与管理<br>
+      • 成语文化数据建设<br>
+      • AI对话引擎迭代<br>
+      • 景区合作拓展<br>
+      • 用户运营与社区维护
+    </div>
+  </div>
+  <div class="box">
+    <div class="box-title">价值主张 Value Propositions</div>
+    <div class="box-text">
+      <b>WebAR免下载</b> — 扫码即用<br>
+      <b>游戏化学习</b> — 寓教于乐<br>
+      <b>AI智能解说</b> — 个性化体验<br>
+      <b>文旅融合</b> — 为景区导流<br>
+      <b>社交裂变</b> — AR合影分享
+    </div>
+  </div>
+  <!-- Row 2 -->
+  <div class="box">
+    <div class="box-title">客户关系 Customer Relationships</div>
+    <div class="box-text">
+      • 积分+段位成长体系<br>
+      • 错题本个性化复习<br>
+      • AI一对一智能问答<br>
+      • 社群运营（微信粉丝群）
+    </div>
+  </div>
+  <div class="box box-highlight">
+    <div class="box-title">客户细分 Customer Segments</div>
+    <div class="box-text">
+      <b>C端：</b><br>
+      • 中小学生（成语学习刚需）<br>
+      • 文化爱好者 / 游客<br>
+      • 亲子家庭用户<br><br>
+      <b>B端：</b><br>
+      • 景区管理方<br>
+      • 文创商家<br>
+      <b>G端：</b>教育主管部门/学校
+    </div>
+  </div>
+  <div class="box">
+    <div class="box-title">渠道通路 Channels</div>
+    <div class="box-text">
+      • 微信朋友圈分享裂变<br>
+      • 景区线下二维码引流<br>
+      • 应用商店PWA分发<br>
+      • 学校/研学机构合作推广<br>
+      • 短视频平台内容营销
+    </div>
+  </div>
+  <!-- Row 3 full -->
+  <div class="box full-row" style="display:flex;">
+    <div style="flex:1;border-right:1px solid #ddd;padding-right:12px;">
+      <div class="box-title">成本结构 Cost Structure</div>
+      <div class="box-text">
+        • AI API调用费用（免费额度+按量付费）<br>
+        • 服务器与CDN（初期可云服务免费额度覆盖）<br>
+        • 内容制作（AR识别图设计 / 3D模型）<br>
+        • 运营推广（初期主要靠裂变+合作）<br>
+        • 人力成本（技术+运营+商务，3-5人团队）
+      </div>
+    </div>
+    <div style="flex:1;padding-left:12px;">
+      <div class="box-title">收入来源 Revenue Streams</div>
+      <div class="box-text">
+        <b>1. B端-景区:</b> AR导览系统年费（5-15万/景区/年）<br>
+        <b>2. B端-文创:</b> 平台佣金15-20%<br>
+        <b>3. G端-教育:</b> 研学课程定制（10-30万/校）<br>
+        <b>4. C端:</b> VIP会员 / 数字藏品 / 限定徽章<br>
+        <b>5. 广告:</b> 景区/文创推广位
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
