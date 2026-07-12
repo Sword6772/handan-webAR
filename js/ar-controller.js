@@ -140,7 +140,8 @@ function initMindAR(container) {
 
     // 启动追踪
     mindarThree.start().then(() => {
-      arRenderer.setAnimationLoop(() => {
+      // 不覆盖MindAR自带的渲染循环，用独立rAF只做UI更新
+      const uiLoop = () => {
         if (!arActive || currentARMode !== 'scan') return;
 
         let anyFound = false;
@@ -150,8 +151,9 @@ function initMindAR(container) {
         });
 
         document.getElementById('scan-guide').style.display = anyFound ? 'none' : 'block';
-        arRenderer.render(arScene, arCamera);
-      });
+        requestAnimationFrame(uiLoop);
+      };
+      uiLoop();
 
       mindarInstance = { mindarThree, anchorData, arRenderer };
       resolve();
