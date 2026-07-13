@@ -7,6 +7,12 @@ let scanLoading = false; // 防止竞态
 let scanFacingMode = 'environment'; // 'environment' (后置) | 'user' (前置)
 let scanVideoStream = null; // 当前扫描模式的摄像头流，用于切换摄像头
 
+// 变量（模式一：扫典故用 - 自定义渲染管线）
+let scanRenderer = null;
+let scanScene = null;
+let scanCamera = null;
+let scanCards = [];
+
 // 变量（模式二：拼成语用）
 let gameRenderer = null;
 let gameScene = null;
@@ -183,55 +189,16 @@ function initMindAR(container, facingMode) {
       imageTargetSrc: 'assets/markers/targets.mind'
     });
 
-    // 必须使用 MindAR 内置的 Three.js，不能混用独立版 THREE
-    const MindARTHREE = MINDAR.IMAGE.THREE;
-    const { renderer: arRenderer, scene: arScene, camera: arCamera } = mindarThree;
+    // 从 MindAR 获取相机引用（用于后续同步相机矩阵到自定义渲染器）
+    const { camera: arCamera } = mindarThree;
 
-    // 限制像素比（与游戏模式一致），避免移动端 canvas 过大
-    arRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    const cw = container.clientWidth, ch = container.clientHeight;
-    arRenderer.setSize(cw, ch);
-    arRenderer.domElement.style.position = 'absolute';
-    arRenderer.domElement.style.top = '0';
-    arRenderer.domElement.style.left = '0';
-    arRenderer.domElement.style.width = '100%';
-    arRenderer.domElement.style.height = '100%';
-    if (mindarThree.cssRenderer) {
-      mindarThree.cssRenderer.setSize(cw, ch);
-      mindarThree.cssRenderer.domElement.style.position = 'absolute';
-      mindarThree.cssRenderer.domElement.style.top = '0';
-      mindarThree.cssRenderer.domElement.style.left = '0';
-      mindarThree.cssRenderer.domElement.style.width = '100%';
-      mindarThree.cssRenderer.domElement.style.height = '100%';
-    }
-
-    // 为每个成语创建锚点内容（使用 MindAR 内置 Three.js）
+    // 为每个成语创建锚点（MindAR 只做追踪，内容用独立 THREE 渲染）
     const anchorData = [];
     IDIOMS.forEach((idiom, index) => {
       const anchor = mindarThree.addAnchor(index);
-      const contentGroup = new MindARTHREE.Group();
-      contentGroup.visible = false;
-
-      const canvas = document.createElement('canvas');
-      canvas.width = 512;
-      canvas.height = 700;
-      drawIdiomCard(canvas, idiom);
-      const texture = new MindARTHREE.CanvasTexture(canvas);
-
-      const planeGeo = new MindARTHREE.PlaneGeometry(0.55, 0.75);
-      const planeMat = new MindARTHREE.MeshBasicMaterial({
-        map: texture,
-        transparent: true,
-        side: MindARTHREE.DoubleSide
-      });
-      const plane = new MindARTHREE.Mesh(planeGeo, planeMat);
-      contentGroup.add(plane);
-
-      anchor.group.add(contentGroup);
-      anchorData.push({ anchor, group: contentGroup, idiom });
+      anchorData.push({ anchor, idiom, index });
+      console.log('[AR] 锚点已创建 ' + index + ': ' + idiom.name);
     });
-
-    // 启动追踪（使用MindAR原生渲染管线）
     const restorePatches = () => {
       document.createElement = origCreateElement;
       navigator.mediaDevices.getUserMedia = origGetUserMedia;
@@ -241,56 +208,105 @@ function initMindAR(container, facingMode) {
       cleanup();
       restorePatches();
 
-      // 修正 MindAR 内部 video：作为相机背景可见（双保险 + 内联样式）
+      // === Step 1: MindAR video 作为相机背景（和拼成语模式一样） ===
       const mindarVideo = container.querySelector('video');
       if (mindarVideo) {
-        mindarVideo.style.position = 'absolute';
-        mindarVideo.style.top = '0';
-        mindarVideo.style.left = '0';
-        mindarVideo.style.width = '100%';
-        mindarVideo.style.height = '100%';
-        mindarVideo.style.objectFit = 'cover';
-        mindarVideo.style.zIndex = '0';
-        mindarVideo.style.opacity = '1';
-        mindarVideo.style.pointerEvents = 'none';
+        mindarVideo.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:0;opacity:1;pointer-events:none;';
       }
 
-      // 修正 MindAR canvas：叠加在 video 上方
-      const mindarCanvas = container.querySelector('canvas');
-      if (mindarCanvas) {
-        mindarCanvas.style.position = 'absolute';
-        mindarCanvas.style.top = '0';
-        mindarCanvas.style.left = '0';
-        mindarCanvas.style.width = '100%';
-        mindarCanvas.style.height = '100%';
-        mindarCanvas.style.zIndex = '1';
-      }
-
-      // 隐藏 MindAR CSS renderer（loading/scanning UI），不遮挡画面
+      // === Step 2: 隐藏 MindAR 自己的 canvas 和 UI（我们用自定义渲染器） ===
+      container.querySelectorAll('canvas').forEach(c => { c.style.display = 'none'; });
       if (mindarThree.cssRenderer && mindarThree.cssRenderer.domElement) {
         mindarThree.cssRenderer.domElement.style.display = 'none';
       }
+      container.querySelectorAll('[class*="mindar-ui"]').forEach(el => { el.style.display = 'none'; });
 
-      // 隐藏 MindAR UI overlay
-      container.querySelectorAll('[class*="mindar-ui"]').forEach(el => {
-        el.style.display = 'none';
+      // === Step 3: 创建自定义 Three.js 渲染器（独立版 THREE，和拼成语模式一致） ===
+      scanRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      scanRenderer.setSize(container.clientWidth, container.clientHeight);
+      scanRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      scanRenderer.domElement.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:1;pointer-events:none;';
+      container.appendChild(scanRenderer.domElement);
+
+      scanScene = new THREE.Scene();
+      scanCamera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.01, 100);
+
+      // === Step 4: 用独立版 THREE 创建卡片内容 ===
+      scanCards = [];
+      IDIOMS.forEach((idiom, index) => {
+        const worldGroup = new THREE.Group();
+        worldGroup.visible = false;
+
+        const cardCanvas = document.createElement('canvas');
+        cardCanvas.width = 512;
+        cardCanvas.height = 700;
+        drawIdiomCard(cardCanvas, idiom);
+        const texture = new THREE.CanvasTexture(cardCanvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+
+        const planeGeo = new THREE.PlaneGeometry(1.0, 1.36);
+        const planeMat = new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+          side: THREE.DoubleSide
+        });
+        const plane = new THREE.Mesh(planeGeo, planeMat);
+        worldGroup.add(plane);
+
+        // 金色边框
+        const edgeGeo = new THREE.EdgesGeometry(planeGeo);
+        const edgeMat = new THREE.LineBasicMaterial({ color: 0xC9A96E });
+        const edgeLine = new THREE.LineSegments(edgeGeo, edgeMat);
+        worldGroup.add(edgeLine);
+
+        scanScene.add(worldGroup);
+        scanCards.push({ group: worldGroup, anchor: anchorData[index].anchor });
+        console.log('[AR] 卡片已创建: ' + idiom.name);
       });
 
-      const uiLoop = () => {
+      // === Step 5: 自定义渲染循环 ===
+      let lastLogTime = 0;
+      const renderLoop = () => {
         if (!arActive || currentARMode !== 'scan') return;
 
+        // 同步 MindAR 相机参数到我们的相机
+        scanCamera.projectionMatrix.fromArray(arCamera.projectionMatrix.toArray());
+        scanCamera.matrixWorld.fromArray(arCamera.matrixWorld.toArray());
+        scanCamera.matrix.copy(scanCamera.matrixWorld);
+        scanCamera.matrixWorldInverse.copy(scanCamera.matrix).invert();
+
         let anyFound = false;
-        anchorData.forEach(({ anchor, group }) => {
-          group.visible = anchor.visible;
-          if (anchor.visible) anyFound = true;
+        scanCards.forEach(({ group, anchor }) => {
+          if (anchor.visible) {
+            anyFound = true;
+            if (!group.visible) console.log('[AR] 检测到目标，卡片显示中...');
+            group.visible = true;
+            // 从 MindAR anchor 复制世界变换到我们的 group
+            const m = anchor.group.matrixWorld.elements;
+            group.matrix.fromArray(m);
+            group.matrix.decompose(group.position, group.quaternion, group.scale);
+            group.matrixAutoUpdate = false;
+          } else {
+            group.visible = false;
+          }
         });
 
-        document.getElementById('scan-guide').style.display = anyFound ? 'none' : 'block';
-        requestAnimationFrame(uiLoop);
-      };
-      uiLoop();
+        scanRenderer.render(scanScene, scanCamera);
 
-      mindarInstance = { mindarThree, anchorData, arRenderer };
+        const now = Date.now();
+        if (now - lastLogTime > 5000) {
+          lastLogTime = now;
+          const n = scanCards.filter(s => s.anchor.visible).length;
+          console.log('[AR] 可见卡片: ' + n + '/' + scanCards.length);
+        }
+
+        document.getElementById('scan-guide').style.display = anyFound ? 'none' : 'block';
+        requestAnimationFrame(renderLoop);
+      };
+      renderLoop();
+
+      console.log('[AR] 自定义渲染管线已启动（独立Three.js）');
+      mindarInstance = { mindarThree, anchorData };
       resolve();
     }).catch((err) => {
       cleanup();
@@ -390,12 +406,15 @@ function stopScanMode() {
     scanVideoStream.getTracks().forEach(track => track.stop());
     scanVideoStream = null;
   }
-  // 释放扫描视频的摄像头（旧HTML占位video）
-  const video = document.getElementById('ar-video-scan');
-  if (video && video.srcObject) {
-    video.srcObject.getTracks().forEach(track => track.stop());
-    video.srcObject = null;
+  // 清理自定义渲染器
+  if (scanRenderer) {
+    scanRenderer.dispose();
+    scanRenderer.domElement.remove();
+    scanRenderer = null;
   }
+  scanScene = null;
+  scanCamera = null;
+  scanCards = [];
   // 清理 MindAR 创建的 DOM 元素（MindAR 的 overlay 挂在 body 下）
   document.querySelectorAll('[class*="mindar-ui"]').forEach(el => el.remove());
   // 也清理容器内的元素
