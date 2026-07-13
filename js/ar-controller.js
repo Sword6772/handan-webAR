@@ -122,33 +122,26 @@ function initMindAR(container, facingMode) {
       return;
     }
 
-    // 超时保护
     const timeoutId = setTimeout(() => {
       reject(new Error('AR引擎初始化超时，请检查网络或刷新重试'));
     }, 25000);
-
     const cleanup = () => clearTimeout(timeoutId);
-
-    // ===== 策略：不覆盖_startVideo，保持MindAR原生渲染管线 =====
-    // 改为拦截document.createElement('video')给loadedmetadata加超时兜底
-    // 同时拦截getUserMedia做摄像头方向切换
 
     const facing = facingMode || 'environment';
 
     // 拦截getUserMedia：支持摄像头方向切换
-    const origGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    navigator.mediaDevices.getUserMedia = function(constraints) {
-      if (constraints.video && constraints.video.facingMode === 'environment') {
-        constraints = {
-          ...constraints,
-          video: { ...constraints.video, facingMode: facing }
-        };
-      }
-      return origGetUserMedia(constraints).then(stream => {
-        scanVideoStream = stream;
-        return stream;
-      });
-    };
+    const origGetUserMedia = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
+    if (origGetUserMedia) {
+      navigator.mediaDevices.getUserMedia = function(constraints) {
+        if (constraints.video && constraints.video.facingMode === 'environment') {
+          constraints = { ...constraints, video: { ...constraints.video, facingMode: facing } };
+        }
+        return origGetUserMedia(constraints).then(stream => {
+          scanVideoStream = stream;
+          return stream;
+        });
+      };
+    }
 
     // 拦截createElement('video')：给loadedmetadata事件加超时兜底
     const origCreateElement = document.createElement.bind(document);
@@ -165,7 +158,6 @@ function initMindAR(container, facingMode) {
               listener.call(this, ev);
             };
             origAddEventListener.call(this, type, wrapped, options);
-            // 超时兜底：8秒后loadedmetadata还没触发就手动触发
             setTimeout(() => {
               if (!metaFired && el.videoWidth > 0) {
                 console.warn('loadedmetadata超时未触发，手动触发');
@@ -183,45 +175,64 @@ function initMindAR(container, facingMode) {
       return el;
     };
 
-    // MindAR v1 API: 内置Three.js渲染器
     const mindarThree = new MINDAR.IMAGE.MindARThree({
       container: container,
       imageTargetSrc: 'assets/markers/targets.mind'
     });
-
-    // 从 MindAR 获取相机引用（用于后续同步相机矩阵到自定义渲染器）
     const { camera: arCamera } = mindarThree;
 
-    // 为每个成语创建锚点（MindAR 只做追踪，内容用独立 THREE 渲染）
+    // 创建锚点（MindAR 追踪，独立 THREE 渲染）
     const anchorData = [];
     IDIOMS.forEach((idiom, index) => {
       const anchor = mindarThree.addAnchor(index);
       anchorData.push({ anchor, idiom, index });
-      console.log('[AR] 锚点已创建 ' + index + ': ' + idiom.name);
     });
+
     const restorePatches = () => {
       document.createElement = origCreateElement;
-      navigator.mediaDevices.getUserMedia = origGetUserMedia;
+      if (origGetUserMedia) navigator.mediaDevices.getUserMedia = origGetUserMedia;
     };
+
+    // 如果 mediaDevices 不可用，直接走错误流程
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      reject(new Error('设备不支持摄像头'));
+      return;
+    }
+
+    // 用于存储从 MindAR 渲染循环捕获的锚点矩阵
+    const capturedMatrices = new Array(anchorData.length).fill(null);
 
     mindarThree.start().then(() => {
       cleanup();
       restorePatches();
 
-      // === Step 1: MindAR video 作为相机背景（和拼成语模式一样） ===
-      const mindarVideo = container.querySelector('video');
-      if (mindarVideo) {
-        mindarVideo.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:0;opacity:1;pointer-events:none;';
-      }
+      // === 拦截 MindAR 的 render 方法，在渲染瞬间捕获锚点矩阵 ===
+      const origRender = mindarThree.renderer.render.bind(mindarThree.renderer);
+      let renderCallCount = 0;
+      mindarThree.renderer.render = function(scene, cam) {
+        renderCallCount++;
+        // MindAR 刚刚更新了锚点变换，抓取它们
+        let capturedCount = 0;
+        anchorData.forEach(({ anchor }, i) => {
+          if (anchor.visible) {
+            capturedMatrices[i] = anchor.group.matrixWorld.elements.slice();
+            capturedCount++;
+          } else {
+            capturedMatrices[i] = null;
+          }
+        });
+        if (renderCallCount <= 60 && renderCallCount % 30 === 0) {
+          console.log('[AR] render拦截 #' + renderCallCount + ', 可见锚点:' + capturedCount);
+        }
+        origRender(scene, cam);
+      };
 
-      // === Step 2: 隐藏 MindAR 自己的 canvas 和 UI（我们用自定义渲染器） ===
-      container.querySelectorAll('canvas').forEach(c => { c.style.display = 'none'; });
-      if (mindarThree.cssRenderer && mindarThree.cssRenderer.domElement) {
-        mindarThree.cssRenderer.domElement.style.display = 'none';
-      }
+      // === 隐藏 MindAR canvas，用我们自己的 ===
+      const mindarCanvas = container.querySelector('canvas');
+      if (mindarCanvas) mindarCanvas.style.display = 'none';
       container.querySelectorAll('[class*="mindar-ui"]').forEach(el => { el.style.display = 'none'; });
 
-      // === Step 3: 创建自定义 Three.js 渲染器（独立版 THREE，和拼成语模式一致） ===
+      // === 创建自定义 Three.js 渲染器 ===
       scanRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
       scanRenderer.setSize(container.clientWidth, container.clientHeight);
       scanRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -230,60 +241,55 @@ function initMindAR(container, facingMode) {
 
       scanScene = new THREE.Scene();
       scanCamera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.01, 100);
+      scanCamera.position.set(0, 0, 0);
+      scanCamera.lookAt(0, 0, -1);
+      try {
+        scanCamera.projectionMatrix.fromArray(arCamera.projectionMatrix.toArray());
+      } catch(e) {}
 
-      // === Step 4: 用独立版 THREE 创建卡片内容 ===
+      // 创建成语卡片（独立 THREE）
       scanCards = [];
       IDIOMS.forEach((idiom, index) => {
         const worldGroup = new THREE.Group();
         worldGroup.visible = false;
 
         const cardCanvas = document.createElement('canvas');
-        cardCanvas.width = 512;
-        cardCanvas.height = 700;
+        cardCanvas.width = 512; cardCanvas.height = 700;
         drawIdiomCard(cardCanvas, idiom);
         const texture = new THREE.CanvasTexture(cardCanvas);
         texture.colorSpace = THREE.SRGBColorSpace;
 
-        const planeGeo = new THREE.PlaneGeometry(1.0, 1.36);
-        const planeMat = new THREE.MeshBasicMaterial({
-          map: texture,
-          transparent: true,
-          side: THREE.DoubleSide
-        });
-        const plane = new THREE.Mesh(planeGeo, planeMat);
+        const plane = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.0, 1.36),
+          new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide })
+        );
         worldGroup.add(plane);
 
         // 金色边框
-        const edgeGeo = new THREE.EdgesGeometry(planeGeo);
-        const edgeMat = new THREE.LineBasicMaterial({ color: 0xC9A96E });
-        const edgeLine = new THREE.LineSegments(edgeGeo, edgeMat);
+        const edgeLine = new THREE.LineSegments(
+          new THREE.EdgesGeometry(new THREE.PlaneGeometry(1.0, 1.36)),
+          new THREE.LineBasicMaterial({ color: 0xC9A96E })
+        );
         worldGroup.add(edgeLine);
 
         scanScene.add(worldGroup);
-        scanCards.push({ group: worldGroup, anchor: anchorData[index].anchor });
-        console.log('[AR] 卡片已创建: ' + idiom.name);
+        scanCards.push({ group: worldGroup, anchor: anchorData[index].anchor, index });
       });
 
-      // === Step 5: 自定义渲染循环 ===
-      let lastLogTime = 0;
+      // 自定义渲染循环：使用从 MindAR 捕获的矩阵
       const renderLoop = () => {
-        if (!arActive || currentARMode !== 'scan') return;
-
-        // 同步 MindAR 相机参数到我们的相机
-        scanCamera.projectionMatrix.fromArray(arCamera.projectionMatrix.toArray());
-        scanCamera.matrixWorld.fromArray(arCamera.matrixWorld.toArray());
-        scanCamera.matrix.copy(scanCamera.matrixWorld);
-        scanCamera.matrixWorldInverse.copy(scanCamera.matrix).invert();
+        if (!arActive || currentARMode !== 'scan' || !scanRenderer) return;
 
         let anyFound = false;
-        scanCards.forEach(({ group, anchor }) => {
-          if (anchor.visible) {
+        scanCards.forEach(({ group, anchor }, i) => {
+          const mat = capturedMatrices[i];
+          if (mat && anchor.visible) {
             anyFound = true;
-            if (!group.visible) console.log('[AR] 检测到目标，卡片显示中...');
+            if (!group.visible) {
+              console.log('[AR] 卡片显示 #' + i + ' pos:', mat[12].toFixed(3), mat[13].toFixed(3), mat[14].toFixed(3));
+            }
             group.visible = true;
-            // 从 MindAR anchor 复制世界变换到我们的 group
-            const m = anchor.group.matrixWorld.elements;
-            group.matrix.fromArray(m);
+            group.matrix.fromArray(mat);
             group.matrix.decompose(group.position, group.quaternion, group.scale);
             group.matrixAutoUpdate = false;
           } else {
@@ -292,20 +298,12 @@ function initMindAR(container, facingMode) {
         });
 
         scanRenderer.render(scanScene, scanCamera);
-
-        const now = Date.now();
-        if (now - lastLogTime > 5000) {
-          lastLogTime = now;
-          const n = scanCards.filter(s => s.anchor.visible).length;
-          console.log('[AR] 可见卡片: ' + n + '/' + scanCards.length);
-        }
-
-        document.getElementById('scan-guide').style.display = anyFound ? 'none' : 'block';
+        const guide = document.getElementById('scan-guide');
+        if (guide) guide.style.display = anyFound ? 'none' : 'block';
         requestAnimationFrame(renderLoop);
       };
       renderLoop();
 
-      console.log('[AR] 自定义渲染管线已启动（独立Three.js）');
       mindarInstance = { mindarThree, anchorData };
       resolve();
     }).catch((err) => {
@@ -828,10 +826,6 @@ function generatePositions(count) {
   }
 
   return positions;
-}
-
-function randJitter(range) {
-  return (Math.random() - 0.5) * 2 * range;
 }
 
 function clearGameScene() {
