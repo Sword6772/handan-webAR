@@ -7,10 +7,7 @@ let scanLoading = false; // 防止竞态
 let scanFacingMode = 'environment'; // 'environment' (后置) | 'user' (前置)
 let scanVideoStream = null; // 当前扫描模式的摄像头流，用于切换摄像头
 
-// 变量（模式一：扫典故用 - 自定义渲染管线）
-let scanRenderer = null;
-let scanScene = null;
-let scanCamera = null;
+// 变量（模式一：扫典故用 — MindAR原生渲染）
 let scanCards = [];
 
 // 变量（模式二：拼成语用）
@@ -179,9 +176,8 @@ function initMindAR(container, facingMode) {
       container: container,
       imageTargetSrc: 'assets/markers/targets.mind'
     });
-    const { camera: arCamera } = mindarThree;
 
-    // 创建锚点（MindAR 追踪，独立 THREE 渲染）
+    // 创建锚点（MindAR 追踪）
     const anchorData = [];
     IDIOMS.forEach((idiom, index) => {
       const anchor = mindarThree.addAnchor(index);
@@ -199,112 +195,131 @@ function initMindAR(container, facingMode) {
       return;
     }
 
-    // 用于存储从 MindAR 渲染循环捕获的锚点矩阵
-    const capturedMatrices = new Array(anchorData.length).fill(null);
-
     mindarThree.start().then(() => {
       cleanup();
       restorePatches();
 
-      // === 拦截 MindAR 的 render 方法，在渲染瞬间捕获锚点矩阵 ===
-      const origRender = mindarThree.renderer.render.bind(mindarThree.renderer);
-      let renderCallCount = 0;
-      mindarThree.renderer.render = function(scene, cam) {
-        renderCallCount++;
-        // MindAR 刚刚更新了锚点变换，抓取它们
-        let capturedCount = 0;
-        anchorData.forEach(({ anchor }, i) => {
-          if (anchor.visible) {
-            capturedMatrices[i] = anchor.group.matrixWorld.elements.slice();
-            capturedCount++;
-          } else {
-            capturedMatrices[i] = null;
-          }
-        });
-        if (renderCallCount <= 60 && renderCallCount % 30 === 0) {
-          console.log('[AR] render拦截 #' + renderCallCount + ', 可见锚点:' + capturedCount);
-        }
-        origRender(scene, cam);
-      };
+      // === 诊断：检查相机和视频流状态 ===
+      var videoEl = container.querySelector('video');
+      if (videoEl) {
+        console.log('[诊断] 视频元素存在, srcObject=' + !!videoEl.srcObject +
+          ', readyState=' + videoEl.readyState +
+          ', videoWidth=' + videoEl.videoWidth +
+          ', videoHeight=' + videoEl.videoHeight);
+      } else {
+        console.warn('[诊断] 未找到视频元素！');
+      }
+      var canvasEl = container.querySelector('canvas');
+      if (canvasEl) {
+        console.log('[诊断] Canvas元素存在, 尺寸=' + canvasEl.width + 'x' + canvasEl.height +
+          ', display=' + canvasEl.style.display);
+      }
+      console.log('[诊断] MindAR场景子节点数=' + mindarThree.scene.children.length +
+        ', 锚点数=' + anchorData.length);
+      console.log('[诊断] targets.mind路径=' + 'assets/markers/targets.mind');
 
-      // === 隐藏 MindAR canvas，用我们自己的 ===
-      const mindarCanvas = container.querySelector('canvas');
-      if (mindarCanvas) mindarCanvas.style.display = 'none';
-      container.querySelectorAll('[class*="mindar-ui"]').forEach(el => { el.style.display = 'none'; });
+      // 使用 MindAR 捆绑的 Three.js，确保对象与 MindAR 渲染器兼容
+      var M = MINDAR.IMAGE.THREE;
 
-      // === 创建自定义 Three.js 渲染器 ===
-      scanRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-      scanRenderer.setSize(container.clientWidth, container.clientHeight);
-      scanRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      scanRenderer.domElement.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:1;pointer-events:none;';
-      container.appendChild(scanRenderer.domElement);
+      // 隐藏 MindAR 的 UI 覆盖层（保留 canvas 和 video 用于相机背景）
+      container.querySelectorAll('[class*="mindar-ui"]').forEach(function(el) { el.style.display = 'none'; });
 
-      scanScene = new THREE.Scene();
-      scanCamera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.01, 100);
-      scanCamera.position.set(0, 0, 0);
-      scanCamera.lookAt(0, 0, -1);
-      try {
-        scanCamera.projectionMatrix.fromArray(arCamera.projectionMatrix.toArray());
-      } catch(e) {}
-
-      // 创建成语卡片（独立 THREE）
+      // 预加载卡片PNG，挂载到MindAR锚点组（MindAR自动处理定位和渲染）
       scanCards = [];
-      IDIOMS.forEach((idiom, index) => {
-        const worldGroup = new THREE.Group();
-        worldGroup.visible = false;
-
-        const cardCanvas = document.createElement('canvas');
-        cardCanvas.width = 512; cardCanvas.height = 700;
-        drawIdiomCard(cardCanvas, idiom);
-        const texture = new THREE.CanvasTexture(cardCanvas);
-        texture.colorSpace = THREE.SRGBColorSpace;
-
-        const plane = new THREE.Mesh(
-          new THREE.PlaneGeometry(1.0, 1.36),
-          new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide })
-        );
-        worldGroup.add(plane);
-
-        // 金色边框
-        const edgeLine = new THREE.LineSegments(
-          new THREE.EdgesGeometry(new THREE.PlaneGeometry(1.0, 1.36)),
-          new THREE.LineBasicMaterial({ color: 0xC9A96E })
-        );
-        worldGroup.add(edgeLine);
-
-        scanScene.add(worldGroup);
-        scanCards.push({ group: worldGroup, anchor: anchorData[index].anchor, index });
+      var imagePromises = IDIOMS.map(function(idiom) {
+        return new Promise(function(resolve, reject) {
+          var img = new Image();
+          img.onload = function() { resolve({ img: img, idiom: idiom }); };
+          img.onerror = function() { reject(new Error('图片加载失败: ' + idiom.id)); };
+          img.src = 'assets/images/cards/idiom-' + idiom.id + '.png';
+        });
       });
 
-      // 自定义渲染循环：使用从 MindAR 捕获的矩阵
-      const renderLoop = () => {
-        if (!arActive || currentARMode !== 'scan' || !scanRenderer) return;
+      Promise.all(imagePromises).then(function(results) {
+        console.log('[AR] 所有卡片图片加载完成 (' + results.length + '/' + IDIOMS.length + ')');
+        results.forEach(function(item, index) {
+          var anchor = anchorData[index].anchor;
 
-        let anyFound = false;
-        scanCards.forEach(({ group, anchor }, i) => {
-          const mat = capturedMatrices[i];
-          if (mat && anchor.visible) {
-            anyFound = true;
-            if (!group.visible) {
-              console.log('[AR] 卡片显示 #' + i + ' pos:', mat[12].toFixed(3), mat[13].toFixed(3), mat[14].toFixed(3));
-            }
-            group.visible = true;
-            group.matrix.fromArray(mat);
-            group.matrix.decompose(group.position, group.quaternion, group.scale);
-            group.matrixAutoUpdate = false;
-          } else {
-            group.visible = false;
+          var cardCanvas = document.createElement('canvas');
+          cardCanvas.width = 512; cardCanvas.height = 700;
+          var ctx = cardCanvas.getContext('2d');
+          ctx.drawImage(item.img, 0, 0, 512, 700);
+
+          var texture = new M.CanvasTexture(cardCanvas);
+          texture.encoding = M.sRGBEncoding;
+          texture.needsUpdate = true;
+
+          var plane = new M.Mesh(
+            new M.PlaneGeometry(1.0, 1.36),
+            new M.MeshBasicMaterial({ map: texture, transparent: true, side: M.DoubleSide })
+          );
+
+          var edgeLine = new M.LineSegments(
+            new M.EdgesGeometry(new M.PlaneGeometry(1.0, 1.36)),
+            new M.LineBasicMaterial({ color: 0xC9A96E })
+          );
+          plane.add(edgeLine);
+
+          // 直接挂载到MindAR锚点组——MindAR会自动更新位置、旋转、缩放
+          anchor.group.add(plane);
+          scanCards.push({ group: plane, anchor: anchor, index: index });
+          console.log('[AR] 卡片#' + index + ' ' + item.idiom.name + ' 已挂载到锚点');
+
+          // 调试：在第0个卡片上加红色测试边框
+          if (index === 0) {
+            // 测试1: 红色立方体挂在锚点上
+            var testCube = new M.Mesh(
+              new M.BoxGeometry(0.3, 0.3, 0.3),
+              new M.MeshBasicMaterial({ color: 0xff0000 })
+            );
+            testCube.position.set(0, 0, 0.5);
+            anchor.group.add(testCube);
+            console.log('[调试] 红色测试立方体已添加到锚点#0 (位置:0,0,0.5)');
+
+            // 测试2: 绿色平面直接挂在场景根节点，始终可见
+            var testGeo2 = new M.PlaneGeometry(0.5, 0.5);
+            var testMat2 = new M.MeshBasicMaterial({ color: 0x00ff00, side: M.DoubleSide });
+            var testPlane2 = new M.Mesh(testGeo2, testMat2);
+            testPlane2.position.set(0, 0, -1.5);
+            mindarThree.scene.add(testPlane2);
+            console.log('[调试] 绿色测试平面已添加到场景根节点 (0,0,-1.5) 应始终可见');
           }
         });
 
-        scanRenderer.render(scanScene, scanCamera);
-        const guide = document.getElementById('scan-guide');
-        if (guide) guide.style.display = anyFound ? 'none' : 'block';
-        requestAnimationFrame(renderLoop);
-      };
-      renderLoop();
+        // 追踪状态更新循环（含检测日志 + 手动渲染确保3D对象可见）
+        var frameCount = 0;
+        (function updateGuide() {
+          if (!arActive || currentARMode !== 'scan') return;
+          frameCount++;
+          var anyVisible = false;
+          for (var i = 0; i < anchorData.length; i++) {
+            if (anchorData[i].anchor.visible) { anyVisible = true; break; }
+          }
+          var guide = document.getElementById('scan-guide');
+          if (guide) guide.style.display = anyVisible ? 'none' : 'block';
 
-      mindarInstance = { mindarThree, anchorData };
+          // 手动触发渲染：确保 MindAR scene 中的 3D 对象被渲染
+          // 不清理颜色缓冲，保留 MindAR 已渲染的相机背景
+          if (mindarThree && mindarThree.renderer && mindarThree.scene && mindarThree.camera) {
+            mindarThree.renderer.autoClear = false;
+            mindarThree.renderer.render(mindarThree.scene, mindarThree.camera);
+            mindarThree.renderer.autoClear = true;
+          }
+
+          // 每秒输出一次状态
+          if (frameCount % 60 === 0) {
+            console.log('[追踪] frame=' + frameCount + ' 任意锚点可见=' + anyVisible +
+              ' scanCards=' + scanCards.length + ' 场景子节点=' + mindarThree.scene.children.length);
+          }
+          requestAnimationFrame(updateGuide);
+        })();
+
+        console.log('[AR] 扫描模式就绪（MindAR原生渲染管道）');
+      }).catch(function(err) {
+        console.error('[AR] 卡片预加载失败:', err);
+      });
+
+      mindarInstance = { mindarThree: mindarThree, anchorData: anchorData };
       resolve();
     }).catch((err) => {
       cleanup();
@@ -314,115 +329,25 @@ function initMindAR(container, facingMode) {
   });
 }
 
-function drawIdiomCard(canvas, idiom) {
-  const ctx = canvas.getContext('2d');
-
-  // 背景
-  ctx.fillStyle = '#1a1410';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // 金色边框
-  ctx.strokeStyle = '#C9A96E';
-  ctx.lineWidth = 6;
-  ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
-
-  // 内边框
-  ctx.strokeStyle = 'rgba(201,169,110,0.2)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
-
-  // 成语名（大号书法体）
-  ctx.fillStyle = '#C9A96E';
-  ctx.font = 'bold 68px "KaiTi","STKaiti","楷体",serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(idiom.name, canvas.width / 2, 140);
-
-  // 拼音
-  ctx.fillStyle = '#8a7a5a';
-  ctx.font = '26px sans-serif';
-  ctx.fillText(idiom.pinyin, canvas.width / 2, 185);
-
-  // 分隔线
-  ctx.strokeStyle = 'rgba(201,169,110,0.25)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(80, 215);
-  ctx.lineTo(canvas.width - 80, 215);
-  ctx.stroke();
-
-  // 释义
-  ctx.fillStyle = '#F5F0E8';
-  ctx.font = '24px "PingFang SC","Microsoft YaHei",sans-serif';
-  const meaningLines = splitLines(ctx, idiom.meaning, canvas.width - 80);
-  meaningLines.forEach((line, i) => {
-    ctx.fillText(line, canvas.width / 2, 260 + i * 36);
-  });
-
-  const meaningEndY = 260 + meaningLines.length * 36 + 16;
-
-  // 典故故事
-  ctx.fillStyle = 'rgba(245,240,232,0.6)';
-  ctx.font = '18px "PingFang SC","Microsoft YaHei",sans-serif';
-  const storyText = idiom.story.length > 160 ? idiom.story.substring(0, 160) + '...' : idiom.story;
-  const storyLines = splitLines(ctx, storyText, canvas.width - 80);
-  storyLines.forEach((line, i) => {
-    const y = meaningEndY + i * 28;
-    if (y < canvas.height - 50) ctx.fillText(line, canvas.width / 2, y);
-  });
-
-  // 出处
-  ctx.fillStyle = 'rgba(245,240,232,0.3)';
-  ctx.font = '15px serif';
-  ctx.fillText('—— ' + idiom.source, canvas.width / 2, canvas.height - 30);
-}
-
-function splitLines(ctx, text, maxWidth) {
-  const chars = text.split('');
-  const lines = [];
-  let line = '';
-  for (let i = 0; i < chars.length; i++) {
-    const test = line + chars[i];
-    if (ctx.measureText(test).width > maxWidth && line.length > 0) {
-      lines.push(line);
-      line = chars[i];
-    } else {
-      line = test;
-    }
-  }
-  if (line.length > 0) lines.push(line);
-  return lines;
-}
-
 function stopScanMode() {
-  scanLoading = false; // 中断可能正在进行的加载
+  scanLoading = false;
   if (mindarInstance) {
     mindarInstance.mindarThree.stop();
     mindarInstance = null;
   }
-  // 释放我们自己管理的摄像头流
   if (scanVideoStream) {
     scanVideoStream.getTracks().forEach(track => track.stop());
     scanVideoStream = null;
   }
-  // 清理自定义渲染器
-  if (scanRenderer) {
-    scanRenderer.dispose();
-    scanRenderer.domElement.remove();
-    scanRenderer = null;
-  }
-  scanScene = null;
-  scanCamera = null;
   scanCards = [];
-  // 清理 MindAR 创建的 DOM 元素（MindAR 的 overlay 挂在 body 下）
+  // 清理 MindAR 创建的 DOM 元素
   document.querySelectorAll('[class*="mindar-ui"]').forEach(el => el.remove());
-  // 也清理容器内的元素
   const container = document.getElementById('ar-mode-scan');
   if (container) {
     container.querySelectorAll('video, canvas').forEach(el => el.remove());
   }
   document.getElementById('ar-status-scan').textContent = '';
   document.getElementById('scan-guide').style.display = 'none';
-  // 更新摄像头切换按钮状态
   updateCameraToggleBtn();
 }
 

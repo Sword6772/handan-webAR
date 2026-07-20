@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AR扫描目标 - 请用手机打开</title>
+<style>
+  body { font-family: sans-serif; background: #1a1410; color: #C9A96E; text-align: center; padding: 20px; }
+  h2 { margin-bottom: 10px; }
+  p.hint { color: #888; font-size: 14px; margin-bottom: 24px; }
+  .targets { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; }
+  .target-card { background: #2c2420; border-radius: 12px; padding: 12px; border: 1px solid rgba(201,169,110,0.2); }
+  .target-card img { width: 260px; height: auto; border-radius: 6px; display: block; }
+  .target-card .label { font-size: 13px; margin-top: 8px; color: #F5F0E8; }
+  .missing { opacity: 0.35; }
+  .missing .label { color: #666; }
+</style>
+</head>
+<body>
+<h2>AR扫描目标图片</h2>
+<p class="hint">请将此页面在<strong>手机</strong>上打开，将下方图片对准笔记本摄像头</p>
+<div class="targets" id="targets"></div>
+<script>
+const IDIOMS = [
+  {id:'han-dan-xue-bu',name:'邯郸学步'},
+  {id:'wan-bi-gui-zhao',name:'完璧归赵'},
+  {id:'fu-jing-qing-zui',name:'负荆请罪'},
+  {id:'huang-liang-yi-meng',name:'黄粱一梦'},
+  {id:'mao-sui-zi-jian',name:'毛遂自荐'},
+  {id:'zhi-shang-tan-bing',name:'纸上谈兵'},
+  {id:'wei-wei-jiu-zhao',name:'围魏救赵'},
+  {id:'yi-yan-jiu-ding',name:'一言九鼎'},
+  {id:'jia-zhi-lian-cheng',name:'价值连城'},
+  {id:'yu-bang-xiang-zheng',name:'鹬蚌相争'},
+  {id:'jing-gong-zhi-niao',name:'惊弓之鸟'},
+  {id:'po-fu-chen-zhou',name:'破釜沉舟'},
+];
+const existingTargets = ['han-dan-xue-bu','wan-bi-gui-zhao','fu-jing-qing-zui','huang-liang-yi-meng','jia-zhi-lian-cheng','mao-sui-zi-jian','po-fu-chen-zhou','yi-yan-jiu-ding','wei-wei-jiu-zhao','yu-bang-xiang-zheng','jing-gong-zhi-niao','zhi-shang-tan-bing'];
+const html = IDIOMS.map(i => {
+  const exists = existingTargets.includes(i.id);
+  const src = exists
+    ? 'assets/images/target-' + i.id + '.jpg'
+    : 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="260" height="200"><rect fill="#1a1410" width="260" height="200"/><text fill="#C9A96E" font-size="28" font-family="sans-serif" text-anchor="middle" x="130" y="90">' + i.name + '</text><text fill="#555" font-size="14" font-family="sans-serif" text-anchor="middle" x="130" y="130">目标图片缺失</text></svg>');
+  return '<div class="target-card' + (exists ? '' : ' missing') + '">'
+    + '<img src="' + src + '" alt="' + i.name + '" width="260">'
+    + '<div class="label">#' + (IDIOMS.indexOf(i)) + ' ' + i.name + (exists ? '' : ' (目标缺失)') + '</div>'
+    + '</div>';
+}).join('');
+document.getElementById('targets').innerHTML = html;
+</script>
+</body>
+</html>
