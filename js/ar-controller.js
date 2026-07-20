@@ -286,8 +286,25 @@ function initMindAR(container, facingMode) {
           }
         });
 
-        // 追踪状态更新循环（含检测日志 + 手动渲染确保3D对象可见）
+        // 手动接管渲染循环，确保3D卡片正确渲染且目标移开后消失
         var frameCount = 0;
+        var bgScene = new M.Scene();
+        var bgCamera = new M.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        bgCamera.position.z = 1;
+        var bgVideo = container.querySelector('video');
+        var bgTexture = null;
+        var bgMesh = null;
+
+        if (bgVideo) {
+          bgTexture = new M.VideoTexture(bgVideo);
+          bgTexture.minFilter = M.LinearFilter;
+          bgTexture.magFilter = M.LinearFilter;
+          var bgGeo = new M.PlaneGeometry(2, 2);
+          var bgMat = new M.MeshBasicMaterial({ map: bgTexture, depthTest: false, depthWrite: false });
+          bgMesh = new M.Mesh(bgGeo, bgMat);
+          bgScene.add(bgMesh);
+        }
+
         (function updateGuide() {
           if (!arActive || currentARMode !== 'scan') return;
           frameCount++;
@@ -298,18 +315,21 @@ function initMindAR(container, facingMode) {
           var guide = document.getElementById('scan-guide');
           if (guide) guide.style.display = anyVisible ? 'none' : 'block';
 
-          // 手动触发渲染：确保 MindAR scene 中的 3D 对象被渲染
-          // 不清理颜色缓冲，保留 MindAR 已渲染的相机背景
+          // 完整渲染管线：清除 → 相机背景 → 3D 场景
           if (mindarThree && mindarThree.renderer && mindarThree.scene && mindarThree.camera) {
-            mindarThree.renderer.autoClear = false;
-            mindarThree.renderer.render(mindarThree.scene, mindarThree.camera);
-            mindarThree.renderer.autoClear = true;
+            var renderer = mindarThree.renderer;
+            renderer.autoClear = true;
+            renderer.clear();
+            if (bgTexture) bgTexture.needsUpdate = true;
+            renderer.render(bgScene, bgCamera);
+            renderer.clearDepth();
+            renderer.render(mindarThree.scene, mindarThree.camera);
           }
 
           // 每秒输出一次状态
           if (frameCount % 60 === 0) {
             console.log('[追踪] frame=' + frameCount + ' 任意锚点可见=' + anyVisible +
-              ' scanCards=' + scanCards.length + ' 场景子节点=' + mindarThree.scene.children.length);
+              ' scanCards=' + scanCards.length);
           }
           requestAnimationFrame(updateGuide);
         })();
