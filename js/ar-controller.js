@@ -265,25 +265,6 @@ function initMindAR(container, facingMode) {
           scanCards.push({ group: plane, anchor: anchor, index: index });
           console.log('[AR] 卡片#' + index + ' ' + item.idiom.name + ' 已挂载到锚点');
 
-          // 调试：在第0个卡片上加红色测试边框
-          if (index === 0) {
-            // 测试1: 红色立方体挂在锚点上
-            var testCube = new M.Mesh(
-              new M.BoxGeometry(0.3, 0.3, 0.3),
-              new M.MeshBasicMaterial({ color: 0xff0000 })
-            );
-            testCube.position.set(0, 0, 0.5);
-            anchor.group.add(testCube);
-            console.log('[调试] 红色测试立方体已添加到锚点#0 (位置:0,0,0.5)');
-
-            // 测试2: 绿色平面直接挂在场景根节点，始终可见
-            var testGeo2 = new M.PlaneGeometry(0.5, 0.5);
-            var testMat2 = new M.MeshBasicMaterial({ color: 0x00ff00, side: M.DoubleSide });
-            var testPlane2 = new M.Mesh(testGeo2, testMat2);
-            testPlane2.position.set(0, 0, -1.5);
-            mindarThree.scene.add(testPlane2);
-            console.log('[调试] 绿色测试平面已添加到场景根节点 (0,0,-1.5) 应始终可见');
-          }
         });
 
         // 手动接管渲染循环，确保3D卡片正确渲染且目标移开后消失
